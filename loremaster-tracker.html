@@ -2363,6 +2363,10 @@ function loadAllState() {
   }
   if (eye) state.eye = JSON.parse(eye);
   if (loot) state.loot = JSON.parse(loot);
+  // Older/partial saves may lack the history array — normalise so the Loot tab
+  // renders and the Hoard roller can push entries (otherwise both throw).
+  if (!state.loot || typeof state.loot !== 'object') state.loot = { history: [] };
+  if (!Array.isArray(state.loot.history)) state.loot.history = [];
   if (party) state.party = JSON.parse(party);
   if (journey) state.journey = JSON.parse(journey);
   if (bestiary) state.bestiary = JSON.parse(bestiary);
@@ -4220,10 +4224,12 @@ function rollLootHoard() {
   }
 
   const share = Math.floor(treasurePoints / partySize);
-  
+
   // Format history log
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const entryMsg = `Hoard [${tier.toUpperCase()}]: Total Treasure: **${treasurePoints}** (${share} pts per share) | Feat rolls: [${featRolls.join(', ')}] | Finds: ${magicalFinds.length > 0 ? magicalFinds.join(', ') : 'None'}`;
+  if (!state.loot || typeof state.loot !== 'object') state.loot = { history: [] };
+  if (!Array.isArray(state.loot.history)) state.loot.history = [];
   state.loot.history.unshift({ time, msg: entryMsg });
   if (state.loot.history.length > 30) state.loot.history.pop();
   
@@ -4259,6 +4265,9 @@ function rollLootHoard() {
 
 function renderLootHistory() {
   const box = document.getElementById('loot-log');
+  if (!box) return;
+  if (!state.loot || typeof state.loot !== 'object') state.loot = { history: [] };
+  if (!Array.isArray(state.loot.history)) state.loot.history = [];
   box.innerHTML = '';
   if (state.loot.history.length === 0) {
     box.innerHTML = '<p class="hint">No loot rolled yet.</p>';
