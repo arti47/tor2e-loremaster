@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Radial Gradient -->
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+      <stop offset="0%" stop-color="#2a1f15" />
+      <stop offset="100%" stop-color="#140d08" />
+    </radialGradient>
+    
+    <!-- Gold Metallic Gradient -->
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffe8a1" />
+      <stop offset="50%" stop-color="#d4a635" />
+      <stop offset="100%" stop-color="#8a6316" />
+    </linearGradient>
+
+    <!-- Crimson Eye Gradient -->
+    <radialGradient id="eyeGrad" cx="50%" cy="50%" r="40%">
+      <stop offset="0%" stop-color="#ff4545" />
+      <stop offset="60%" stop-color="#8b0000" />
+      <stop offset="100%" stop-color="#300000" />
+    </radialGradient>
+  </defs>
+
+  <!-- Background Circle -->
+  <circle cx="256" cy="256" r="240" fill="url(#bgGrad)" stroke="url(#goldGrad)" stroke-width="8" />
+
+  <!-- Outer Runic Ring Border decoration -->
+  <circle cx="256" cy="256" r="215" fill="none" stroke="#d4a635" stroke-width="1.5" stroke-dasharray="8 6" opacity="0.6" />
+
+  <!-- The Loremaster Book Shape -->
+  <!-- Left page -->
+  <path d="M 120 180 C 180 170, 230 200, 256 215 L 256 385 C 230 370, 180 340, 120 350 Z" fill="#ebd6b0" stroke="#8a6316" stroke-width="3" stroke-linejoin="round" />
+  <!-- Right page -->
+  <path d="M 392 180 C 332 170, 282 200, 256 215 L 256 385 C 282 370, 332 340, 392 350 Z" fill="#ebd6b0" stroke="#8a6316" stroke-width="3" stroke-linejoin="round" />
+  
+  <!-- Book spine cover details -->
+  <path d="M 120 350 L 120 360 C 180 350, 230 380, 256 395 C 282 380, 332 350, 392 360 L 392 350" fill="none" stroke="#8a6316" stroke-width="3" />
+  <path d="M 256 215 L 256 395" fill="none" stroke="#8a6316" stroke-width="4" />
+
+  <!-- The Eye Emblem in the Center / Floating above the book -->
+  <g transform="translate(0, -25)">
+    <!-- Eye outer outline -->
+    <path d="M 156 256 C 206 200, 306 200, 356 256 C 306 312, 206 312, 156 256 Z" fill="#1b140d" stroke="url(#goldGrad)" stroke-width="4" />
+    
+    <!-- Sclera/Iris -->
+    <circle cx="256" cy="256" r="40" fill="url(#eyeGrad)" stroke="#ff4545" stroke-width="1.5" />
+    
+    <!-- Slit Pupil -->
+    <path d="M 256 220 C 261 240, 261 272, 256 292 C 251 272, 251 240, 256 220 Z" fill="#000000" />
+    
+    <!-- Eye highlights -->
+    <circle cx="246" cy="246" r="4" fill="#ffffff" opacity="0.8" />
+    <circle cx="240" cy="252" r="2" fill="#ffffff" opacity="0.6" />
+  </g>
+
+  <!-- Gold Laurel / Compass accents under the book -->
+  <path d="M 160 410 C 200 430, 312 430, 352 410" fill="none" stroke="url(#goldGrad)" stroke-width="3" stroke-linecap="round" />
+  <polygon points="256,435 262,423 250,423" fill="url(#goldGrad)" />
+</svg>
