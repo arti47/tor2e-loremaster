@@ -3063,7 +3063,7 @@ function renderStanceGrid() {
         heroInfo.style.justifyContent = 'space-between';
         heroInfo.style.fontSize = '12px';
         heroInfo.style.fontWeight = '600';
-        heroInfo.innerHTML = `<span>${hero.name}</span><span style="font-size:10px;color:var(--gold)">TN ${(hero.strTN||14)+(hero.parry||0)}</span>`;
+        heroInfo.innerHTML = `<span>${hero.name}</span><span style="font-size:10px;color:var(--gold)">Parry ${hero.parry||14}</span>`;
         heroRow.appendChild(heroInfo);
 
         // Engaged foes list
@@ -3246,34 +3246,38 @@ function rollFoeAttack(foeId, profIdx) {
   // Let's build a quick target selector if we have players imported, showing their current stance.
   let targetOptionsHTML = '';
   let defaultMod = 'normal';
+  let defaultDiceBonus = 0;
   state.encounter.stances = state.encounter.stances || {};
+
+  // TOR2e RAW: the TN of an adversary's attack against a hero is the hero's
+  // Parry score (a full TN: culture base + shield). The hero's stance changes
+  // how many Success dice the adversary rolls (Forward +1d, Defensive -1d) —
+  // it does NOT change the TN or make the Feat die Favoured/Ill-favoured.
+  const STANCE_DICE = { Forward: 1, Defensive: -1 };
 
   if (state.party.length > 0) {
     state.party.forEach((hero, idx) => {
-      const heroTN = (hero.strTN || 14) + (hero.parry || 0);
+      const heroTN = hero.parry || 14;
       const stance = state.encounter.stances[hero.name] || 'Open';
-      
+      const diceMod = STANCE_DICE[stance] || 0;
+
       const isTargeted = foe.targetHero ? (foe.targetHero === hero.name) : (idx === 0);
       const selected = isTargeted ? 'selected' : '';
-      if (isTargeted) {
-        if (stance === 'Forward') defaultMod = 'fav';
-        else if (stance === 'Defensive') defaultMod = 'ill';
-        else defaultMod = 'normal';
-      }
-      targetOptionsHTML += `<option value="${heroTN}" data-stance="${stance}" ${selected}>${hero.name} (TN ${heroTN} - ${stance})</option>`;
+      if (isTargeted) defaultDiceBonus = diceMod;
+      targetOptionsHTML += `<option value="${heroTN}" data-stance="${stance}" data-dice="${diceMod}" ${selected}>${hero.name} (Parry ${heroTN} - ${stance})</option>`;
     });
   } else {
-    targetOptionsHTML = '<option value="14" data-stance="Open" selected>Default (TN 14)</option>';
+    targetOptionsHTML = '<option value="14" data-stance="Open" data-dice="0" selected>Default (TN 14)</option>';
   }
 
   const modalHtml = `
     <p style="margin-bottom:10px">Rolling <strong>${prof.name}</strong> for <strong>${foe.name}</strong>.</p>
     <div class="field">
-      <label>Target Hero / TN</label>
+      <label>Target Hero (TN = hero's Parry)</label>
       <select id="attack-target-tn" onchange="onAttackTargetChange(this)">${targetOptionsHTML}</select>
     </div>
     <div class="field">
-      <label>Roll Modifier (Auto-applied by stance)</label>
+      <label>Roll Modifier (special abilities/conditions only — not stance)</label>
       <select id="attack-mod">
         <option value="normal" ${defaultMod === 'normal' ? 'selected' : ''}>Normal</option>
         <option value="fav" ${defaultMod === 'fav' ? 'selected' : ''}>Favoured (2 Feat dice, keep best)</option>
@@ -3281,8 +3285,8 @@ function rollFoeAttack(foeId, profIdx) {
       </select>
     </div>
     <div class="field">
-      <label>Fell/Stance Dice Mod (e.g., Forward +1d, Defensive -1d, Fierce +1d)</label>
-      <input type="number" id="attack-dice-bonus" value="0">
+      <label>Success Dice Mod (auto by stance: Forward +1d, Defensive -1d; +Fell/Fierce)</label>
+      <input type="number" id="attack-dice-bonus" value="${defaultDiceBonus}">
     </div>
   `;
 
@@ -3306,17 +3310,10 @@ function rollFoeAttack(foeId, profIdx) {
 
 function onAttackTargetChange(selectEl) {
   const selectedOpt = selectEl.options[selectEl.selectedIndex];
-  const stance = selectedOpt.getAttribute('data-stance') || 'Open';
-  const modSelect = document.getElementById('attack-mod');
-  if (modSelect) {
-    if (stance === 'Forward') {
-      modSelect.value = 'fav';
-    } else if (stance === 'Defensive') {
-      modSelect.value = 'ill';
-    } else {
-      modSelect.value = 'normal';
-    }
-  }
+  // Stance adjusts the adversary's Success dice (Forward +1d, Defensive -1d).
+  const diceMod = parseInt(selectedOpt.getAttribute('data-dice')) || 0;
+  const diceInput = document.getElementById('attack-dice-bonus');
+  if (diceInput) diceInput.value = diceMod;
 }
 
 function executeAdversaryRoll(foe, prof, tn, targetText, mod, diceBonus) {
@@ -4918,7 +4915,7 @@ function renderStanceTracker() {
       state.encounter.stances[hero.name] = 'Open';
     }
     const currentStance = state.encounter.stances[hero.name];
-    const tn = (hero.strTN || 14) + (hero.parry || 0);
+    const tn = hero.parry || 14;
 
     const div = document.createElement('div');
     div.style.display = 'flex';
@@ -4936,7 +4933,7 @@ function renderStanceTracker() {
           <option value="Defensive" ${currentStance === 'Defensive' ? 'selected' : ''}>Defensive Stance</option>
           <option value="Rearward" ${currentStance === 'Rearward' ? 'selected' : ''}>Rearward Stance</option>
         </select>
-        <span style="color:var(--gold-soft);font-weight:600;width:70px;text-align:right">Target TN: ${tn}</span>
+        <span style="color:var(--gold-soft);font-weight:600;width:80px;text-align:right" title="TN for adversaries attacking this hero (= Parry)">Attack TN: ${tn}</span>
       </div>
     `;
     rows.appendChild(div);
