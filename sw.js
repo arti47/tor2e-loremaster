@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tor2e-lm-v2';
+const CACHE_NAME = 'tor2e-lm-v3';
 const ASSETS = [
   './index.html',
   './loremaster-tracker.html',

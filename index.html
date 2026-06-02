@@ -552,6 +552,7 @@
           <button class="btn btn-secondary btn-full" onclick="openCustomAdversaryModal()">+ Custom Foe</button>
           <button class="btn btn-gold btn-full moria-only" onclick="openOrcBandGeneratorModal()" title="Moria rules — Random Orc-Band Generator">🎲 Orc Band</button>
         </div>
+        <button class="btn btn-secondary btn-full" onclick="openStatBlockImportModal()" title="Paste a stat block from the tor2e-adversary-statblock skill (JSON or Markdown)" style="margin-top:6px">📋 Paste Stat Block</button>
       </div>
 
       <div class="card">
@@ -2589,19 +2590,38 @@ function populateAdvDb() {
     if (filterVal !== 'all' && adv.category !== filterVal) return;
 
     const safeName = adv.name.replace(/'/g, "\\'");
+    const isRef = adv._template || adv._lore;   // non-combat reference entry
     const delBtn = adv._lib
       ? `<button class="btn btn-sm btn-danger" onclick="deleteBestiaryEntry('${safeName}')" title="Delete from My Bestiary" style="padding:4px 7px">🗑</button>`
       : '';
+
+    // Source / kind tag.
+    let tag = '';
+    if (adv._template) tag = ' <span class="tag" style="font-size:8px;padding:1px 4px;background:var(--border);color:var(--ink)">TEMPLATE</span>';
+    else if (adv._lore) tag = ' <span class="tag" style="font-size:8px;padding:1px 4px;background:var(--border);color:var(--ink)">LORE</span>';
+    else if (adv._imported) tag = ' <span class="tag tag-gold" style="font-size:8px;padding:1px 4px">IMPORTED</span>';
+    else if (adv._lib) tag = ' <span class="tag tag-gold" style="font-size:8px;padding:1px 4px">CUSTOM</span>';
+
+    const warn = (adv.profs || []).some(p => p.uncertain)
+      ? ' <span title="Some weapon values are estimates (corrupted Moria source)">⚠️</span>' : '';
+
+    const info = isRef
+      ? `<div style="font-size:10px;color:var(--ink-soft)">${adv._template ? 'Stat template — roll Tables 6–8' : 'Lore reference — no stats'}</div>`
+      : `<div style="font-size:10px;color:var(--ink-soft)">Attr:${adv.attributeLevel} · End:${adv.endurance} · Might:${adv.might} · ${adv.resolve ? 'Res' : 'Hate'}:${adv.resolve || adv.hate || 0}</div>`;
+
+    const actionBtn = isRef
+      ? `<button class="btn btn-sm btn-secondary" onclick="viewBestiaryReference('${safeName}')">📖 View</button>`
+      : `<button class="btn btn-sm btn-gold" onclick="addAdversaryToCombat('${safeName}')">+ Add</button>`;
 
     const div = document.createElement('div');
     div.className = 'adv-db-item';
     div.innerHTML = `
       <div>
-        <strong style="color:var(--ink)">${adv.name}</strong>${adv._lib ? ' <span class="tag tag-gold" style="font-size:8px;padding:1px 4px">CUSTOM</span>' : ''}
-        <div style="font-size:10px;color:var(--ink-soft)">Attr:${adv.attributeLevel} · End:${adv.endurance} · Might:${adv.might} · ${adv.resolve ? 'Res' : 'Hate'}:${adv.resolve || adv.hate}</div>
+        <strong style="color:var(--ink)">${adv.name}</strong>${tag}${warn}
+        ${info}
       </div>
       <div style="display:flex;gap:4px">
-        <button class="btn btn-sm btn-gold" onclick="addAdversaryToCombat('${safeName}')">+ Add</button>
+        ${actionBtn}
         ${delBtn}
       </div>
     `;
@@ -2611,6 +2631,251 @@ function populateAdvDb() {
 
 function filterAdvDb() {
   populateAdvDb();
+}
+
+/* ---------- Stat-block import (tor2e-adversary-statblock skill) ----------
+   Accepts the skill's structured JSON export OR its Markdown blocks; both map
+   onto the ADVERSARY_DB template shape. Parser/mapper verified against real
+   fixtures. */
+
+function parseAdversaryStatBlocks(md) {
+  const lines = String(md).replace(/\r\n/g, '\n').split('\n');
+  const blocks = [];
+  let cur = null, category = '', mode = null;
+  const sharedByCategory = {};
+
+  const num = (s) => { const m = String(s == null ? '' : s).replace(/\+/g, '').match(/-?\d+/); return m ? parseInt(m[0], 10) : 0; };
+  const parsePairs = (line) => {
+    const pairs = {};
+    line.split(/\s+·\s+/).forEach(seg => {
+      const m = seg.match(/\*\*\s*(.+?)\s*:\*\*\s*(.*)$/);
+      if (m) pairs[m[1].trim()] = m[2].trim();
+    });
+    return pairs;
+  };
+  const assign = (pairs) => {
+    for (const k in pairs) {
+      const key = k.toLowerCase(), v = pairs[k];
+      if (key.startsWith('distinctive')) cur.features = v;
+      else if (key.startsWith('attribute')) cur.attributeLevel = num(v);
+      else if (key.startsWith('endurance')) cur.endurance = num(v);
+      else if (key.startsWith('might')) cur.might = num(v);
+      else if (key === 'hate') cur.hate = num(v);
+      else if (key === 'resolve') cur.resolve = num(v);
+      else if (key.startsWith('parry')) cur.parry = /^[—–-]*$/.test(v.trim()) ? 0 : num(v);
+      else if (key.startsWith('armour') || key.startsWith('armor')) cur.armour = num(v);
+    }
+  };
+  const parseWeapon = (line) => {
+    if (line.indexOf('⚠️') !== -1) {
+      const est = line.match(/\*\*\s*(\d+)\s*\(\s*(\d+)\s*\/\s*(\d+)\s*\)\s*\*\*/);
+      const head = line.replace(/^\s*-\s*/, '').split('—')[0].trim().replace(/[,\s]+$/, '');
+      let name = head, special = '';
+      const ci = head.indexOf(',');
+      if (ci >= 0) { name = head.slice(0, ci).trim(); special = head.slice(ci + 1).trim(); }
+      return { name, rating: est ? +est[1] : 0, damage: est ? +est[2] : 0, injury: est ? +est[3] : 0, special, uncertain: true };
+    }
+    const m = line.match(/^\s*-\s*(.+?)\s+(\d+)\s*\((\d+)\/(\d+)\)(?:,\s*(.+))?$/);
+    if (!m) return null;
+    const w = { name: m[1].trim(), rating: +m[2], damage: +m[3], injury: +m[4] };
+    if (m[5]) w.special = m[5].trim();
+    return w;
+  };
+  const parseFell = (line) => {
+    const m = line.match(/^\s*-\s*\*\*(.+?)\*\*\.?\s*(.*)$/);
+    if (!m) return null;
+    return { name: m[1].replace(/\.\s*$/, '').trim(), desc: m[2].trim() };
+  };
+  const pushCur = () => { if (cur) { blocks.push(cur); cur = null; } };
+
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) continue;
+    const h3 = t.match(/^###\s+(.+)/);
+    if (h3) { pushCur(); cur = { name: h3[1].trim(), category, features: '', profs: [], fellAbilities: [] }; mode = null; continue; }
+    const h12 = t.match(/^#{1,2}\s+(.+)/);
+    if (h12) { category = h12[1].replace(/^\d+\s*·\s*/, '').trim(); mode = null; continue; }
+    if (!cur) {
+      const sm = t.match(/^>?\s*\*?\s*All\s+(.+?)s?\s+(?:have|share)\s+(.+?)\.?\*?$/i);
+      if (sm) {
+        const names = sm[2].split(/\s*(?:\/|\+|,| and )\s*/).map(s => s.trim()).filter(Boolean);
+        (sharedByCategory[category] = sharedByCategory[category] || []).push(...names.map(n => ({ name: n, desc: '', shared: true })));
+      }
+      continue;
+    }
+    const top = line.match(/^-\s+\*\*(.+?):\*\*(.*)$/);
+    const sub = /^\s+-\s+/.test(line);
+    if (top) {
+      const label = top[1].trim().toLowerCase();
+      if (label.startsWith('combat')) { mode = 'weapons'; continue; }
+      if (label.startsWith('fell')) { mode = 'fell'; continue; }
+      assign(parsePairs(t)); mode = null; continue;
+    }
+    if (sub) {
+      if (mode === 'weapons') { const w = parseWeapon(line); if (w) cur.profs.push(w); }
+      else if (mode === 'fell') { const f = parseFell(line); if (f) cur.fellAbilities.push(f); }
+    }
+  }
+  pushCur();
+  blocks.forEach(b => {
+    (sharedByCategory[b.category] || []).forEach(s => { if (!b.fellAbilities.some(f => f.name === s.name)) b.fellAbilities.push({ name: s.name, desc: s.desc, shared: true }); });
+    if (b.hate === undefined && b.resolve === undefined) b.hate = 0;
+    b.combatReady = (b.profs || []).length > 0 && b.attributeLevel != null;
+    b.kind = 'standard';
+  });
+  return blocks;
+}
+
+function mapStructuredAdversaries(doc) {
+  const lookup = {};
+  (doc.categories || []).forEach(c => { lookup[c.name] = {}; (c.sharedAbilities || []).forEach(a => { lookup[c.name][a.name] = a.desc || ''; }); });
+  return (doc.adversaries || []).map(a => {
+    const t = {
+      name: a.name,
+      category: a.category || 'Imported',
+      features: Array.isArray(a.features) ? a.features.join(', ') : (a.features || ''),
+      attributeLevel: a.attributeLevel == null ? 0 : a.attributeLevel,
+      endurance: a.endurance == null ? 0 : a.endurance,
+      might: a.might == null ? 0 : a.might,
+      parry: a.parry == null ? 0 : a.parry,
+      armour: a.armour == null ? 0 : a.armour,
+      profs: (a.weapons || []).map(w => {
+        const p = { name: w.name, rating: w.dice, damage: w.damage, injury: w.injury };
+        const sp = (w.special || []).join(', ');
+        if (sp) p.special = sp;
+        if (w.uncertain) { p.uncertain = true; if (w.rawGlyphs) p.rawGlyphs = w.rawGlyphs; }
+        return p;
+      }),
+      fellAbilities: [],
+      _imported: true
+    };
+    if (a.resource != null) { if (a.resourceType === 'Resolve') t.resolve = a.resource; else t.hate = a.resource; }
+    const cl = lookup[a.category] || {};
+    (a.inheritedAbilities || []).forEach(n => t.fellAbilities.push({ name: n, desc: cl[n] || '', shared: true }));
+    (a.fellAbilities || []).forEach(f => { if (!t.fellAbilities.some(x => x.name === f.name)) t.fellAbilities.push({ name: f.name, desc: f.desc || '' }); });
+    t.kind = a.type || 'standard';
+    if (a.type === 'template') { t._template = true; if (a.templateNotes) t.templateNotes = a.templateNotes; if (a.additionalAbilitiesNote) t.additionalAbilitiesNote = a.additionalAbilitiesNote; }
+    if (a.type === 'lore') { t._lore = true; t.lore = a.lore || ''; } else if (a.lore) t.lore = a.lore;
+    t.combatReady = a.type === 'standard' && a.attributeLevel != null && (a.weapons || []).length > 0;
+    return t;
+  });
+}
+
+// Auto-detect structured JSON vs Markdown.
+function importAdversaries(text) {
+  const trimmed = String(text).trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const doc = JSON.parse(trimmed);
+      if (doc && Array.isArray(doc.adversaries)) return { format: 'json', templates: mapStructuredAdversaries(doc) };
+      if (Array.isArray(doc)) return { format: 'json', templates: mapStructuredAdversaries({ adversaries: doc, categories: [] }) };
+    } catch (e) { /* fall back to markdown */ }
+  }
+  return { format: 'markdown', templates: parseAdversaryStatBlocks(trimmed) };
+}
+
+function openStatBlockImportModal() {
+  const html = `
+    <p class="hint" style="margin-bottom:8px">Paste a stat block from the <strong>tor2e-adversary-statblock</strong> skill — the structured <strong>JSON</strong> export or the <strong>Markdown</strong> block(s). Multiple foes are supported; the format is auto-detected.</p>
+    <textarea id="statblock-input" style="width:100%;min-height:160px;font-family:monospace;font-size:11px;background:var(--bg-deep);color:var(--ink);border:1px solid var(--border);padding:8px;border-radius:6px" placeholder="Paste JSON or Markdown here…"></textarea>
+  `;
+  showModal({
+    title: '📋 Import Stat Block',
+    message: html,
+    buttons: [
+      { text: 'Cancel', value: false, className: 'btn-secondary' },
+      { text: 'Parse →', value: true, className: 'btn-gold' }
+    ]
+  }).then(ok => {
+    if (!ok) return;
+    const text = (document.getElementById('statblock-input') || {}).value || '';
+    if (!text.trim()) { alertStyled('Nothing to import', 'Paste a stat block first.'); return; }
+    runStatBlockImport(text);
+  });
+}
+
+function runStatBlockImport(text) {
+  let result;
+  try { result = importAdversaries(text); } catch (e) { alertStyled('Parse Error', 'Could not read the input: ' + e.message); return; }
+  const templates = (result.templates || []).filter(t => t.name);
+  if (!templates.length) { alertStyled('No foes found', 'The parser found no adversaries. Check the format and try again.'); return; }
+
+  const rows = templates.map(t => {
+    const badge = t._template ? '<span class="tag" style="font-size:8px;padding:1px 4px;background:var(--border);color:var(--ink)">TEMPLATE</span>'
+      : t._lore ? '<span class="tag" style="font-size:8px;padding:1px 4px;background:var(--border);color:var(--ink)">LORE</span>'
+      : '<span class="tag tag-gold" style="font-size:8px;padding:1px 4px">FOE</span>';
+    const warn = (t.profs || []).some(p => p.uncertain) ? ' ⚠️' : '';
+    const stats = t.combatReady
+      ? `Attr ${t.attributeLevel} · End ${t.endurance} · ${t.resolve ? 'Res' : 'Hate'} ${t.resolve || t.hate || 0} · Parry ${t.parry} · ${t.profs.length} wpn · ${t.fellAbilities.length} fell`
+      : (t._lore ? 'Lore reference (no stats)' : 'Template — stats via Tables 6–8');
+    return `<div style="padding:6px 0;border-bottom:1px solid var(--border)">
+      <strong style="color:var(--ink)">${t.name}</strong> ${badge}${warn} <span style="font-size:10px;color:var(--ink-soft)">${t.category}</span>
+      <div style="font-size:10px;color:var(--ink-soft)">${stats}</div>
+    </div>`;
+  }).join('');
+
+  const nStd = templates.filter(t => t.combatReady).length;
+  const nRef = templates.length - nStd;
+  const html = `
+    <p style="margin-bottom:6px">Detected <strong>${result.format.toUpperCase()}</strong> · ${templates.length} entr${templates.length === 1 ? 'y' : 'ies'} (${nStd} combat-ready, ${nRef} reference).</p>
+    <div style="max-height:240px;overflow-y:auto;margin-bottom:6px">${rows}</div>
+    <p class="hint">All are saved to <strong>My Bestiary</strong> (templates &amp; lore as 📖 reference cards). Choose whether to also drop the combat-ready foes into the current encounter. ⚠️ = some Moria weapon values are estimates.</p>
+  `;
+  window._pendingImport = templates;
+  showModal({
+    title: 'Confirm Import',
+    message: html,
+    buttons: [
+      { text: 'Cancel', value: 'cancel', className: 'btn-secondary' },
+      { text: '📚 Bestiary only', value: 'bestiary', className: 'btn-secondary' },
+      { text: '⚔️ Bestiary + Encounter', value: 'both', className: 'btn-gold' }
+    ]
+  }).then(choice => {
+    const pending = window._pendingImport; window._pendingImport = null;
+    if (!choice || choice === 'cancel' || !pending) return;
+    commitImportedAdversaries(pending, choice === 'both');
+  });
+}
+
+function commitImportedAdversaries(templates, addToEncounter) {
+  let saved = 0, added = 0;
+  templates.forEach(t => {
+    const entry = JSON.parse(JSON.stringify(t));
+    entry._lib = true;
+    let nm = entry.name;
+    if (ADVERSARY_DB.some(a => a.name === nm)) nm += ' (Imported)';
+    entry.name = nm;
+    state.bestiary = state.bestiary.filter(a => a.name !== nm);
+    state.bestiary.push(entry);
+    saved++;
+    if (addToEncounter && entry.combatReady) { addAdversaryToCombat(nm); added++; }
+  });
+  saveAllState();
+  populateAdvDb();
+  if (addToEncounter) renderEncounterTab();
+  alertStyled('Import Complete', `Saved <strong>${saved}</strong> to My Bestiary${addToEncounter ? `; added <strong>${added}</strong> combat-ready foe(s) to the encounter.` : '.'}`);
+}
+
+function viewBestiaryReference(name) {
+  const adv = allAdversaries().find(a => a.name === name);
+  if (!adv) return;
+  let html = `<p style="margin-bottom:8px"><strong>${adv.name}</strong> — <span style="color:var(--ink-soft)">${adv.category}</span></p>`;
+  if (adv._lore) {
+    html += `<p style="line-height:1.55">${adv.lore || 'No description recorded.'}</p>`;
+  } else if (adv._template) {
+    if (adv.templateNotes) {
+      html += '<ul style="margin:0 0 8px 16px;line-height:1.5">';
+      for (const k in adv.templateNotes) html += `<li><strong>${k}:</strong> ${adv.templateNotes[k]}</li>`;
+      html += '</ul>';
+    }
+    if (adv.additionalAbilitiesNote) html += `<p style="font-size:12px;color:var(--ink-soft);margin-bottom:6px">${adv.additionalAbilitiesNote}</p>`;
+    if ((adv.fellAbilities || []).length) {
+      html += '<p style="margin-top:6px"><strong>Fixed Fell Abilities:</strong></p><ul style="margin:0 0 0 16px;line-height:1.45">';
+      adv.fellAbilities.forEach(f => { html += `<li><strong>${f.name}.</strong> ${f.desc}</li>`; });
+      html += '</ul>';
+    }
+  }
+  alertStyled('Bestiary Reference', html);
 }
 
 function deleteBestiaryEntry(name) {
@@ -2625,6 +2890,10 @@ function deleteBestiaryEntry(name) {
 function addAdversaryToCombat(name) {
   const template = allAdversaries().find(a => a.name === name);
   if (!template) return;
+  if (template._template || template._lore) {
+    alertStyled('Reference entry', `<strong>${template.name}</strong> is a ${template._lore ? 'lore' : 'stat-template'} reference with no combat stats.${template._template ? ' Roll its stats on Tables 6–8, then build it with <strong>+ Custom Foe</strong>.' : ''}`);
+    return;
+  }
 
   const instance = {
     id: 'foe-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
